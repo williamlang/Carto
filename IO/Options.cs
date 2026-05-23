@@ -537,6 +537,127 @@ namespace Carto.IO
         }
 
         /// <summary>
+        /// Build a transient <see cref="Options"/> from a peer-mod <see cref="ExportRequest"/>.
+        /// （由對等模組的 <see cref="ExportRequest"/> 建立暫時性的 <see cref="Options"/>。）<br/>
+        /// Mirrors the per-property defaults of <see cref="Settings.SetDefaults"/> without
+        /// reading <see cref="Instance.Settings"/>, and disables UI side effects
+        /// (<see cref="CompletionDialog"/>, <see cref="CompletionSound"/>).
+        /// （複製 <see cref="Settings.SetDefaults"/> 的各屬性預設值，但不讀取使用者設定，
+        /// 並關閉 UI 副作用（<see cref="CompletionDialog"/>、<see cref="CompletionSound"/>）。）
+        /// </summary>
+        /// <param name="request">The peer-mod request.（對等模組請求。）</param>
+        /// <returns>A standalone <see cref="Options"/> instance ready for <see cref="Initialize"/>.</returns>
+        internal static Options FromRequest(ExportRequest request)
+        {
+            // Per Settings.GetOptions() WGS84 branch: default projection definition,
+            // sourceCRS = WGS84, targetCRS = UTM, origin at (0, 0).
+            // （對應 Settings.GetOptions() WGS84 分支：預設投影定義，來源 WGS84，目標 UTM，原點 (0, 0)。）
+            Geodata.ProjectionDefinition projectionDefinition = default;
+            projectionDefinition.transform = new Geodata.HelmertTransform(new double[0]);
+
+            System systems = request.Systems;
+            Feature features = request.Features;
+
+            // Per Settings.GetOptions(): zoning system always implies Feature.Zoning.
+            // （對應 Settings.GetOptions()：選擇分區系統時必定包含 Feature.Zoning。）
+            if ((systems & System.Zoning) != 0) features |= Feature.Zoning;
+
+            FileFormat vectorFormat = IsVectorFormat(request.Format) ? request.Format : FileFormat.Unknown;
+            FileFormat rasterFormat = request.Format == FileFormat.GeoTIFF ? FileFormat.GeoTIFF : FileFormat.Unknown;
+
+            return new Options
+            {
+                AssetPack = true,
+                Created = DateTime.Now,
+                CompletionDialog = false,
+                CompletionSound = false,
+                CustomDirectory = request.OutputDirectory,
+                Display = new Dictionary<(Property, System), bool>
+                {
+                    { (Property.Category, System.Building), true },
+                    { (Property.Category, System.Network),  true },
+                    { (Property.Category, System.POI),      true },
+                    { (Property.Object,   System.Unknown),  false },
+                    { (Property.Zoning,   System.Unknown),  true }
+                },
+                Elevation = false,
+                Errors = new(),
+                Features = features,
+                FileName = "{Feature}",
+                FileNameFormat = NamingFormat.Feature,
+                GeoTiffFormat = GeoTiffFormat.Int16,
+                Homeless = true,
+                InactiveRoute = false,
+                Minimized = false,
+                PetPassenger = true,
+                Properties = BuildDefaultProperties(systems),
+                RasterFormat = rasterFormat,
+                RasterKinds = (systems & System.Raster) != 0 ? (RasterKind.Elevation | RasterKind.Depth) : RasterKind.Unknown,
+                RoadClassification = RoadClassification.Vanilla,
+                SeparateResident = false,
+                SeparateServiceUpgrade = false,
+                SourceCoordinates = new Geodata.Coord(0d, 0d, Geodata.CRS.WGS84),
+                SourceProjection = Geodata.CRS.WGS84,
+                SourceProjectionDefinition = projectionDefinition,
+                StatisticsMapTile = true,
+                Systems = systems,
+                TargetEllipsoid = Ellipsoid.WGS84,
+                TargetProjection = Geodata.CRS.UTM,
+                TargetProjectionDefinition = projectionDefinition,
+                Taxable = false,
+                Unzoned = false,
+                VectorFormat = vectorFormat,
+                VectorKinds = BuildDefaultVectorKinds(systems),
+                XtmAcronym = true,
+                ZccColor = true
+            };
+        }
+
+        /// <summary>
+        /// Per-system property defaults mirroring <see cref="Settings.SetDefaults"/>.
+        /// （複製 <see cref="Settings.SetDefaults"/> 的各系統屬性預設值。）
+        /// </summary>
+        private static Dictionary<System, HashSet<Property>> BuildDefaultProperties(System systems)
+        {
+            Dictionary<System, HashSet<Property>> dict = new();
+            if ((systems & System.Area) != 0)
+                dict[System.Area] = new() { Property.Name, Property.Object, Property.Resident, Property.Employee, Property.Unlocked };
+            if ((systems & System.Building) != 0)
+                dict[System.Building] = new() { Property.Name, Property.Address, Property.Asset, Property.Category, Property.Employee, Property.Object, Property.Resident, Property.Zoning };
+            if ((systems & System.Network) != 0)
+                dict[System.Network] = new() { Property.Name, Property.Asset, Property.Category, Property.Direction, Property.Elevation, Property.Form, Property.Lane, Property.Limit, Property.Object };
+            if ((systems & System.POI) != 0)
+                dict[System.POI] = new() { Property.Name, Property.Address, Property.Category, Property.Object };
+            if ((systems & System.Route) != 0)
+                dict[System.Route] = new() { Property.Name, Property.Color, Property.Length, Property.Object, Property.Passenger, Property.Stop, Property.Transport, Property.Usage, Property.Vehicle, Property.Weight };
+            if ((systems & System.Zoning) != 0)
+                dict[System.Zoning] = new() { Property.Name, Property.Color, Property.Object, Property.Zoning };
+            return dict;
+        }
+
+        /// <summary>
+        /// Per-system vector-kind defaults mirroring <see cref="Settings.SetDefaults"/>.
+        /// （複製 <see cref="Settings.SetDefaults"/> 的各系統向量幾何預設值。）
+        /// </summary>
+        private static Dictionary<System, VectorKind> BuildDefaultVectorKinds(System systems)
+        {
+            Dictionary<System, VectorKind> dict = new();
+            if ((systems & System.Area) != 0)     dict[System.Area]     = VectorKind.Boundary;
+            if ((systems & System.Building) != 0) dict[System.Building] = VectorKind.Boundary;
+            if ((systems & System.Network) != 0)  dict[System.Network]  = VectorKind.Boundary | VectorKind.Centerline;
+            if ((systems & System.POI) != 0)      dict[System.POI]      = VectorKind.Location;
+            if ((systems & System.Route) != 0)    dict[System.Route]    = VectorKind.Centerline;
+            if ((systems & System.Zoning) != 0)   dict[System.Zoning]   = VectorKind.Boundary;
+            return dict;
+        }
+
+        /// <summary>
+        /// True when the format produces vector output.（為向量輸出格式時回傳真值。）
+        /// </summary>
+        private static bool IsVectorFormat(FileFormat format) =>
+            format == FileFormat.GeoJSON || format == FileFormat.Shapefile || format == FileFormat.GeoPackage;
+
+        /// <summary>
         /// Check <see cref="Properties"/>' integrity.
         /// （確認 <see cref="Properties"/> 的完整性。）
         /// </summary>

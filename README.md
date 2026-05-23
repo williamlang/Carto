@@ -35,6 +35,29 @@ Carto is available exclusively via [Paradox Mods](https://mods.paradoxplaza.com/
 
 See the [Tutorials](https://github.com/taipei-native/Carto/wiki/Tutorial) for making maps with QGIS, and the [User Manual](https://github.com/taipei-native/Carto/wiki) for detailed documentation.
 
+## Peer-mod integration
+
+Carto exposes a public API at `Carto.IO.IO.Export(ExportRequest)` so other mods can drive exports on their own cadence. The peer-API path does not read the player's saved settings, plays no completion sound, and shows no dialogs — every outcome (including failures and locked files) comes back through `ExportResult`. Because Carto is rebuilt against each Cities: Skylines II patch, downstream mods should reflect on Carto's assembly at runtime (see `Carto.Domain.RoadBuilder` / `Carto.Domain.ExtendedTransportManager` for the established pattern) rather than taking a hard reference.
+
+```csharp
+public class ExportRequest
+{
+    public FileFormat Format { get; set; }       // GeoJSON, Shapefile, or GeoTIFF
+    public string OutputDirectory { get; set; }  // absolute; created if missing
+    public Feature Features { get; set; }        // bitmask of layers to export
+    public System Systems { get; set; }          // bitmask of Carto systems to run
+}
+
+public class ExportResult
+{
+    public bool Success { get; set; }
+    public string[] FilesWritten { get; set; }
+    public string ErrorMessage { get; set; }     // populated on failure
+}
+
+public static ExportResult Export(ExportRequest request);
+```
+
 ## Credits
 
 Since April 2024, when I started to develop Carto, I’ve learned from and been inspired by the open-source work of amazing Cities: Skylines II modders including **algernon**, **Guo**, **krzychu124**, **TDW**, and **yenyang** — a big shout-out to them!
